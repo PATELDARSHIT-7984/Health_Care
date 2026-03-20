@@ -6,4 +6,4 @@ user.set_password('1234')
 user.save()
 token,created = Token.objects.get_or_create(user=user)
 
-print(token.key)    
+print(token.key)

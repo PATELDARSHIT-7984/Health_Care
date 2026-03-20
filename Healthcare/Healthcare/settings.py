@@ -11,7 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 #use when we use JWT authentication
-# from datetime import timedelta
+from datetime import timedelta
 
 from pathlib import Path
 
@@ -46,7 +46,7 @@ INSTALLED_APPS = [
     'drf_yasg'   
 ]
 
-#this framework setting for Sessionbase Authentication
+# this framework setting for Sessionbase Authentication
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.TokenAuthentication',
@@ -59,13 +59,16 @@ REST_FRAMEWORK = {
 
 
 
-#this framework setting for JWTAuthentication
+# this framework setting for JWTAuthentication
 # REST_FRAMEWORK ={
 #     'DEFAULT_AUTHENTICATION_CLASSES':(
 #         'rest_framework_simplejwt.authentication.JWTAuthentication',
-#     )
+#     ),
+#     'DEFAULT_PERMISSION_CLASSES': [
+#         'rest_framework.permissions.IsAuthenticated',
+#     ]
 # }
-# SIMPLE_JWT={
+#  SIMPLE_JWT={
 #     'ACCESS_TOKEN_LIFETIME':timedelta(minutes=60),
 #     'AUTH_HEADER_TYPES':('Bearer',)
 # }
