@@ -18,8 +18,8 @@ schema_view = get_schema_view(
 
 router = DefaultRouter()
 router.register(r'healthcenter', HealthcenterView)
-router.register(r'doctor', DoctorView)
 router.register(r'register', RegisterView)
+router.register(r'doctor', DoctorView)
 router.register(r'appointment', AppointmentView)
 router.register(r'prescription', PrescriptionView)
 router.register(r'medicine', MedicineView)

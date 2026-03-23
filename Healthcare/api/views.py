@@ -1,16 +1,15 @@
 from django.http import HttpResponse
 from rest_framework.viewsets import ModelViewSet
-from rest_framework.response import Response
+# from rest_framework.response import Response
 from .models import Appointment, Doctor, Health, Medicine, Patient, Prescription
 from .serializers import AppointmentSerializer, DoctorSerializer, Healthserializer, MedicineSerializer, PrescriptionSerializer, RegisterSerializer
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from .permission import IsOwnerOrReadOnly,IsAdminOrReadOnly, IsOwnerOrAdmin
 from django.db.models import Q
-from drf_yasg import openapi
 from rest_framework.exceptions import PermissionDenied
 # we use this when we use JWTAuthentication
-from rest_framework import status
-from drf_yasg.utils import swagger_auto_schema
+# from rest_framework import status
+# from drf_yasg.utils import swagger_auto_schema
 
 class HealthcenterView(ModelViewSet):
     queryset = Health.objects.all()
@@ -41,7 +40,7 @@ class AppointmentView(ModelViewSet):
     
     def get_queryset(self):
         user = self.request.user
-        if self.request.user.is_staff:
+        if user.is_staff:
             return Appointment.objects.all()
         return Appointment.objects.filter(user=user)
  

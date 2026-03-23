@@ -26,19 +26,19 @@ class RegisterSerializer(serializers.ModelSerializer):
         model = Patient
         fields = ['username', 'password']
 
-    def create(self, validated_data):
-        user = User.objects.create_user(
-            username=validated_data['username'],
-            password=validated_data['password']
-        )
-        return user
-    
     def validate(self, attrs):
         if User.objects.filter(username = attrs['username']).exists():
             raise serializers.ValidationError(
                 {"Username": "This username is already taken!"}
             )
         return attrs
+
+    def create(self, validated_data):
+        user = User.objects.create_user(
+            username=validated_data['username'],
+            password=validated_data['password']
+        )
+        return user
 
 class DoctorSerializer(serializers.ModelSerializer):
     class Meta:
@@ -64,7 +64,14 @@ class AppointmentSerializer(serializers.ModelSerializer):
     def get_fields(self):
         fields = super().get_fields()
         request = self.context.get('request')
-        
+
+        def validate_date(self, attrs):
+            from django.utils import timezone
+
+            if attrs < timezone.now():
+                raise serializers.ValidationError("Appointment date cannot be in the past!")
+            return attrs
+
         if request:
             if request.user.is_staff:
                 fields['doctor'].read_only = True
@@ -72,16 +79,8 @@ class AppointmentSerializer(serializers.ModelSerializer):
             else:
                 fields['status'].read_only = True
 
-
         return fields
-    
-    def validate_date(self, attrs):
-        from django.utils import timezone
-
-        if attrs < timezone.now():
-            raise serializers.ValidationError("Appointment date cannot be in the past!")
-        return attrs
-        
+            
 class PrescriptionSerializer(serializers.ModelSerializer):
     
     class Meta:
@@ -91,6 +90,13 @@ class PrescriptionSerializer(serializers.ModelSerializer):
     user_name = serializers.CharField(source='appointment.user.username', read_only=True)
     doctor_name = serializers.CharField(source='appointment.doctor.name', read_only=True)
 
+    def validate(self, attrs):
+        appointment = attrs.get('appointment')
+        if appointment and appointment.status != 'Approved':
+            raise serializers.ValidationError("Cannot create prescription for unapproved appointment!")
+        
+        return attrs
+
     def get_fields(self):
         fields = super().get_fields()
         request = self.context.get('request')
@@ -99,13 +105,6 @@ class PrescriptionSerializer(serializers.ModelSerializer):
             fields['appointment'].queryset = Appointment.objects.filter(status='Approved')
 
         return fields
-    
-    def validate(self, attrs):
-        appointment = attrs.get('appointment')
-        if appointment and appointment.status != 'Approved':
-            raise serializers.ValidationError("Cannot create prescription for unapproved appointment!")
-        
-        return attrs
 
 class MedicineSerializer(serializers.ModelSerializer):
     class Meta:
