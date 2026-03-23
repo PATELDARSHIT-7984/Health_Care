@@ -1,18 +1,10 @@
-from django.urls import path,include
-from .views import AppointmentView, DoctorView, HealthcenterView, RegisterView
-
-#this is for Sessionbased Authentication
+from django.urls import path, include
+from .views import AppointmentView, DoctorView, HealthcenterView, MedicineView, PrescriptionView, RegisterView
 from rest_framework.authtoken.views import obtain_auth_token
-
-#this for JWTAuthentication
-# from rest_framework_simplejwt.views import TokenObtainPairView,TokenRefreshView
-
-# this for adding swagger in path
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from rest_framework.routers import DefaultRouter
-
 
 schema_view = get_schema_view(
     openapi.Info(
@@ -25,21 +17,21 @@ schema_view = get_schema_view(
 )
 
 router = DefaultRouter()
-router.register(r'healthcenter', HealthcenterView, basename='healthcenter')
-router.register(r'doctor', DoctorView, basename='doctor')
+router.register(r'healthcenter', HealthcenterView)
+router.register(r'doctor', DoctorView)
+router.register(r'register', RegisterView)
+router.register(r'appointment', AppointmentView)
+router.register(r'prescription', PrescriptionView)
+router.register(r'medicine', MedicineView)
 
 urlpatterns = [
-    
-    # this path for Sessionbased Authentication
-    path('login/',obtain_auth_token),
+    path('login/', obtain_auth_token),
 
-    #this path for JWTAuthentication
-    # path('login/',TokenObtainPairView.as_view(),name='login'),
-    # path('refresh/',TokenRefreshView.as_view(),name='refresh'),
+    # JWT (if you use later)
+    # path('login/', TokenObtainPairView.as_view(), name='login'),
+    # path('refresh/', TokenRefreshView.as_view(), name='refresh'),
 
-    path('',include(router.urls)),
-    path('register/',RegisterView.as_view({'post':'create'}),name='register'),
-    path('swagger/',schema_view.with_ui('swagger',cache_timeout=0),name='swagger-ui'),  
-    path('appointment/',AppointmentView.as_view({'get':'list','post':'create'}),name='appointment'),
+    path('', include(router.urls)),
+
+    path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='swagger-ui'),
 ]
-urlpatterns += router.urls
