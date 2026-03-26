@@ -115,13 +115,29 @@ class MedicineSerializer(serializers.ModelSerializer):
     class Meta:
         model = Medicine
         fields = '__all__'
+    
+    def validate_price(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Medicine price must be greater than zero!")
+        return value
 
 class BillSerializer(serializers.ModelSerializer):
-
-    user_name = serializers.CharField(source='prescription.appointment.user.username', read_only=True)
-    doctor_name = serializers.CharField(source='prescription.appointment.doctor.name', read_only=True)
-    medicine_name = serializers.CharField(source='prescription.medication.name', read_only=True)
-    medicine_price = serializers.FloatField(source='prescription.medication.price', read_only=True)
+    user_name = serializers.CharField(
+        source='prescription.appointment.user.username',
+        read_only=True
+    )
+    doctor_name = serializers.CharField(
+        source='prescription.appointment.doctor.name',
+        read_only=True
+    )
+    medicine_name = serializers.CharField(
+        source='prescription.medication.name',
+        read_only=True
+    )
+    medicine_price = serializers.FloatField(
+        source='prescription.medication.price',
+        read_only=True
+    )
 
     class Meta:
         model = Bill
@@ -129,31 +145,58 @@ class BillSerializer(serializers.ModelSerializer):
         read_only_fields = ['total_price', 'billing_date']
 
     def validate(self, attrs):
-        prescription = attrs.get('prescription')
+        prescription = attrs.get('prescription', getattr(self.instance, 'prescription', None))
+        qantity = attrs.get('qantity', getattr(self.instance, 'qantity', None))
 
         if not prescription:
-            raise serializers.ValidationError("Prescription is required to create a bill!")
-        
+            raise serializers.ValidationError({
+                "prescription": "Prescription is required to create a bill!"
+            })
+
         if self.instance:
             if Bill.objects.filter(prescription=prescription).exclude(id=self.instance.id).exists():
-                raise serializers.ValidationError("Bill already exists for this prescription!")
+                raise serializers.ValidationError({
+                    "prescription": "Bill already exists for this prescription!"
+                })
         else:
             if Bill.objects.filter(prescription=prescription).exists():
-                raise serializers.ValidationError("Bill already exists for this prescription!")
-        
+                raise serializers.ValidationError({
+                    "prescription": "Bill already exists for this prescription!"
+                })
+
+        if prescription.medication.price <= 0:
+            raise serializers.ValidationError({
+                "prescription": "Medicine price must be greater than zero!"
+            })
+
+        if qantity is None or qantity <= 0:
+            raise serializers.ValidationError({
+                "qantity": "Quantity must be greater than zero!"
+            })
+
         return attrs
 
     def get_fields(self):
         fields = super().get_fields()
         request = self.context.get('request')
 
-        if request and not request.user.is_staff:
-            if self.instance:
-                fields['prescription'].queryset = Prescription.objects.filter(
-                    Q(bill__isnull=True) | Q(id=self.instance.prescription.id)
-                )
-            else:
+        if request:
 
-                fields['prescription'].queryset = Prescription.objects.filter(bill__isnull=True)
+            if request.user.is_staff:
+
+                if isinstance(self.instance, Bill):
+                    fields['prescription'].queryset = Prescription.objects.filter(
+                        Q(bill__isnull=True) | Q(id=self.instance.prescription.id)
+                    )
+                else:
+                    fields['prescription'].queryset = Prescription.objects.filter(
+                        bill__isnull=True
+                    )
+
+            else:
+                fields['prescription'].read_only = True
+                fields['qantity'].read_only = True
+                fields['total_price'].read_only = True
+                fields['billing_date'].read_only = True
 
         return fields
