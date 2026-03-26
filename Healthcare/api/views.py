@@ -1,8 +1,8 @@
 from django.http import HttpResponse
 from rest_framework.viewsets import ModelViewSet
 # from rest_framework.response import Response
-from .models import Appointment, Doctor, Health, Medicine, Patient, Prescription
-from .serializers import AppointmentSerializer, DoctorSerializer, Healthserializer, MedicineSerializer, PrescriptionSerializer, RegisterSerializer
+from .models import Appointment, Bill, Doctor, Health, Medicine, Patient, Prescription
+from .serializers import AppointmentSerializer, BillSerializer, DoctorSerializer, Healthserializer, MedicineSerializer, PrescriptionSerializer, RegisterSerializer
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from .permission import IsOwnerOrReadOnly,IsAdminOrReadOnly, IsOwnerOrAdmin
 from django.db.models import Q
@@ -81,6 +81,26 @@ class MedicineView(ModelViewSet):
     queryset = Medicine.objects.all()
     serializer_class = MedicineSerializer
     permission_classes = [IsAuthenticated, IsAdminOrReadOnly]
+
+class BillView(ModelViewSet):
+    queryset = Bill.objects.all()
+    serializer_class = BillSerializer
+    permission_classes = [IsAuthenticated, IsAdminOrReadOnly]
+
+    def get_queryset(self):
+        user = self.request.user
+        if self.request.user.is_staff:
+            return Bill.objects.all()
+        else:
+            return Bill.objects.filter(prescription__appointment__user=user)
+    
+    def get_serializer_context(self):
+        return {"request": self.request}
+    
+    def create(self, request, *args, **kwargs):
+        if not request.user.is_staff:
+            raise PermissionDenied("Only admin can create bill")
+        return super().create(request, *args, **kwargs)
 
 def home(request):
     return HttpResponse("Welcome to HealthcareCenter")

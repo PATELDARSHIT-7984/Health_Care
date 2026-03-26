@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import Appointment, Doctor, Health, Medicine, Prescription, User, Patient
+from django.db.models import Q
+from .models import Appointment, Bill, Doctor, Health, Medicine, Prescription, User, Patient
 
 class Healthserializer(serializers.ModelSerializer):
 
@@ -89,6 +90,9 @@ class PrescriptionSerializer(serializers.ModelSerializer):
     
     user_name = serializers.CharField(source='appointment.user.username', read_only=True)
     doctor_name = serializers.CharField(source='appointment.doctor.name', read_only=True)
+    medicine_name = serializers.CharField(source='medication.name', read_only=True)
+    medicine_price = serializers.FloatField(source='medication.price', read_only=True)
+    appointment_details = serializers.CharField(source='appointment.__str__', read_only=True)
 
     def validate(self, attrs):
         appointment = attrs.get('appointment')
@@ -107,6 +111,49 @@ class PrescriptionSerializer(serializers.ModelSerializer):
         return fields
 
 class MedicineSerializer(serializers.ModelSerializer):
+
     class Meta:
         model = Medicine
         fields = '__all__'
+
+class BillSerializer(serializers.ModelSerializer):
+
+    user_name = serializers.CharField(source='prescription.appointment.user.username', read_only=True)
+    doctor_name = serializers.CharField(source='prescription.appointment.doctor.name', read_only=True)
+    medicine_name = serializers.CharField(source='prescription.medication.name', read_only=True)
+    medicine_price = serializers.FloatField(source='prescription.medication.price', read_only=True)
+
+    class Meta:
+        model = Bill
+        fields = '__all__'
+        read_only_fields = ['total_price', 'billing_date']
+
+    def validate(self, attrs):
+        prescription = attrs.get('prescription')
+
+        if not prescription:
+            raise serializers.ValidationError("Prescription is required to create a bill!")
+        
+        if self.instance:
+            if Bill.objects.filter(prescription=prescription).exclude(id=self.instance.id).exists():
+                raise serializers.ValidationError("Bill already exists for this prescription!")
+        else:
+            if Bill.objects.filter(prescription=prescription).exists():
+                raise serializers.ValidationError("Bill already exists for this prescription!")
+        
+        return attrs
+
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get('request')
+
+        if request and not request.user.is_staff:
+            if self.instance:
+                fields['prescription'].queryset = Prescription.objects.filter(
+                    Q(bill__isnull=True) | Q(id=self.instance.prescription.id)
+                )
+            else:
+
+                fields['prescription'].queryset = Prescription.objects.filter(bill__isnull=True)
+
+        return fields

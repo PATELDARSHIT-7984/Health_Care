@@ -38,15 +38,30 @@ class Appointment(models.Model):
     def __str__(self):
         return f"{self.user.username} - Dr. {self.doctor.name} ({self.date})"
 
-class Prescription(models.Model):
-    appointment = models.ForeignKey(Appointment, on_delete=models.CASCADE)
-    medication = models.CharField(max_length=200)
-    dosage = models.CharField(max_length=100)
-
-    def __str__(self):
-        return self.medication
-    
 class Medicine(models.Model):
     name = models.CharField(max_length=100)
     price = models.FloatField()
+
+    def __str__(self):
+        return self.name
+
+class Prescription(models.Model):
+    appointment = models.ForeignKey(Appointment, on_delete=models.CASCADE)
+    medication = models.ForeignKey(Medicine, on_delete=models.CASCADE)
+    dosage = models.CharField(max_length=100)
+
+    def __str__(self):
+        return f"{self.appointment.user.username} - dr. {self.appointment.doctor.name} - {self.medication.name}"
     
+class Bill(models.Model):
+    prescription = models.OneToOneField(Prescription, on_delete=models.CASCADE)
+    qantity = models.IntegerField(default=1)
+    total_price = models.FloatField()
+    billing_date = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        self.total_price = self.prescription.medication.price * self.qantity
+        super().save(*args, **kwargs)
+    
+    def __str__(self):
+        return f"Bill for {self.prescription.medication.name} - Total: {self.total_price}"
