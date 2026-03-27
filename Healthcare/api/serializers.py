@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from rest_framework.exceptions import PermissionDenied
 from django.db.models import Q
 from .models import Appointment, Bill, Doctor, Health, Medicine, Prescription, User, Patient
 
@@ -25,7 +26,8 @@ class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
     class Meta:
         model = Patient
-        fields = ['username', 'password']
+        fields = ['id', 'username', 'password']
+        read_only_fields = ['id']
 
     def validate(self, attrs):
         if User.objects.filter(username = attrs['username']).exists():
@@ -146,7 +148,7 @@ class BillSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         prescription = attrs.get('prescription', getattr(self.instance, 'prescription', None))
-        qantity = attrs.get('qantity', getattr(self.instance, 'qantity', None))
+        quantity = attrs.get('quantity', getattr(self.instance, 'quantity', None))
 
         if not prescription:
             raise serializers.ValidationError({
@@ -169,7 +171,7 @@ class BillSerializer(serializers.ModelSerializer):
                 "prescription": "Medicine price must be greater than zero!"
             })
 
-        if qantity is None or qantity <= 0:
+        if quantity is None or quantity <= 0:
             raise serializers.ValidationError({
                 "qantity": "Quantity must be greater than zero!"
             })
@@ -195,7 +197,7 @@ class BillSerializer(serializers.ModelSerializer):
 
             else:
                 fields['prescription'].read_only = True
-                fields['qantity'].read_only = True
+                fields['quantity'].read_only = True
                 fields['total_price'].read_only = True
                 fields['billing_date'].read_only = True
 

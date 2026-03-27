@@ -18,7 +18,7 @@ class Patient(models.Model):
 class Doctor(models.Model):
     name = models.CharField(max_length=100)
     specialization = models.CharField(max_length=100)
-    experience = models.IntegerField()
+    experience = models.PositiveIntegerField()
     hospital = models.CharField(max_length=200)
 
     def __str__(self):
@@ -33,7 +33,7 @@ class Appointment(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     doctor = models.ForeignKey(Doctor, on_delete=models.CASCADE)
     date = models.DateTimeField()
-    status = models.CharField(max_length=20, default='Scheduled')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Scheduled')
 
     def __str__(self):
         return f"{self.user.username} - Dr. {self.doctor.name} ({self.date})"
@@ -55,12 +55,12 @@ class Prescription(models.Model):
     
 class Bill(models.Model):
     prescription = models.OneToOneField(Prescription, on_delete=models.CASCADE)
-    qantity = models.IntegerField(default=1)
+    quantity = models.PositiveIntegerField(default=1)
     total_price = models.FloatField()
     billing_date = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
-        self.total_price = self.prescription.medication.price * self.qantity
+        self.total_price = self.prescription.medication.price * self.quantity
         super().save(*args, **kwargs)
     
     def __str__(self):
