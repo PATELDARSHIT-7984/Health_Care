@@ -25,7 +25,6 @@ class HealthcenterView(ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
-
 class DoctorView(ModelViewSet):
     queryset = Doctor.objects.all()
     serializer_class = DoctorSerializer
@@ -78,9 +77,7 @@ class DoctorView(ModelViewSet):
 
         return super().destroy(request, *args, **kwargs)
 
-
 class RegisterView(ModelViewSet):
-    permission_classes = [AllowAny, IsAdminOrReadOnly]
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
 
@@ -88,6 +85,10 @@ class RegisterView(ModelViewSet):
     search_fields = ['username']
     ordering_fields = ['username']
 
+    def get_permissions(self):
+        if self.action == 'create':
+            return [AllowAny()]
+        return [IsAuthenticated(), IsAdminOrReadOnly()]
 
 class AppointmentView(ModelViewSet):
     queryset = Appointment.objects.all()
@@ -243,39 +244,86 @@ class BillView(ModelViewSet):
         return super().update(request, *args, **kwargs)
 
 class AdminDashboardView(APIView):
-    permission_classes = [IsAuthenticated, IsAdminOrReadOnly]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        if not request.user.is_staff:
+            raise PermissionDenied("Only admin can access admin dashboard.")
+
         total_users = User.objects.count()
         total_doctors = Doctor.objects.count()
         total_appointments = Appointment.objects.count()
         total_medicines = Medicine.objects.count()
         total_profiles = Health.objects.count()
+        total_prescriptions = Prescription.objects.count()
+        total_bills = Bill.objects.count()
 
         approved_appointments = Appointment.objects.filter(status='Approved').count()
         pending_appointments = Appointment.objects.filter(status='Pending').count()
         rejected_appointments = Appointment.objects.filter(status='Rejected').count()
         finished_appointments = Appointment.objects.filter(status='Finished').count()
 
-        total_bills = Bill.objects.count()
-        total_prescriptions = Prescription.objects.count()
-
         total_revenue = Bill.objects.aggregate(total=Sum('total_price'))['total'] or 0
 
+        # Appointments that are approved but still waiting for prescription
+        appointments_waiting_for_prescription = Appointment.objects.filter(
+            status='Approved',
+            prescription__isnull=True
+        ).count()
+
+        # Prescriptions that exist but bill is not created yet
+        prescriptions_waiting_for_bill = Prescription.objects.filter(
+            bill__isnull=True
+        ).count()
+
+        # Doctors still busy (Pending or Approved appointment exists)
+        doctors_still_busy = Doctor.objects.filter(
+            appointment__status__in=['Pending', 'Approved']
+        ).distinct().count()
+
+        # Doctors free to leave
+        doctors_free_to_leave = total_doctors - doctors_still_busy
+
+        # Recent records
+        recent_appointments = Appointment.objects.order_by('-id')[:5]
+        recent_prescriptions = Prescription.objects.order_by('-id')[:5]
+        recent_bills = Bill.objects.order_by('-id')[:5]
+
         data = {
-            "total_users": total_users,
-            "total_doctors": total_doctors,
-            "total_appointments": total_appointments,
-            "total_medicines": total_medicines,
-            "total_profiles": total_profiles,
-            "approved_appointments": approved_appointments,
-            "pending_appointments": pending_appointments,
-            "rejected_appointments": rejected_appointments,
-            "finished_appointments": finished_appointments,
-            "total_bills": total_bills,
-            "total_prescriptions": total_prescriptions,
-            "total_revenue": total_revenue,
+            "dashboard_type": "Admin Dashboard",
+
+            "totals": {
+                "total_users": total_users,
+                "total_doctors": total_doctors,
+                "total_appointments": total_appointments,
+                "total_medicines": total_medicines,
+                "total_profiles": total_profiles,
+                "total_prescriptions": total_prescriptions,
+                "total_bills": total_bills,
+                "total_revenue": total_revenue,
+            },
+
+            "appointment_status_summary": {
+                "approved_appointments": approved_appointments,
+                "pending_appointments": pending_appointments,
+                "rejected_appointments": rejected_appointments,
+                "finished_appointments": finished_appointments,
+            },
+
+            "workflow_summary": {
+                "appointments_waiting_for_prescription": appointments_waiting_for_prescription,
+                "prescriptions_waiting_for_bill": prescriptions_waiting_for_bill,
+                "doctors_still_busy": doctors_still_busy,
+                "doctors_free_to_leave": doctors_free_to_leave,
+            },
+
+            "recent_activity": {
+                "recent_appointments": [str(a) for a in recent_appointments],
+                "recent_prescriptions": [str(p) for p in recent_prescriptions],
+                "recent_bills": [str(b) for b in recent_bills],
+            }
         }
+
         return Response(data)
 
 class PatientDashboardView(APIView):
@@ -297,16 +345,48 @@ class PatientDashboardView(APIView):
             prescription__appointment__user=user
         ).aggregate(total=Sum('total_price'))['total'] or 0
 
+        my_latest_appointment = Appointment.objects.filter(user=user).order_by('-date').first()
+        my_latest_prescription = Prescription.objects.filter(appointment__user=user).order_by('-id').first()
+        my_latest_bill = Bill.objects.filter(prescription__appointment__user=user).order_by('-billing_date').first()
+
+        # Appointments that are approved but still waiting for prescription
+        my_waiting_prescription = Appointment.objects.filter(
+            user=user,
+            status='Approved',
+            prescription__isnull=True
+        ).count()
+
+        # Prescriptions that are created but bill not yet generated
+        my_waiting_bill = Prescription.objects.filter(
+            appointment__user=user,
+            bill__isnull=True
+        ).count()
+
         data = {
+            "dashboard_type": "Patient Dashboard",
             "username": user.username,
-            "my_appointments": my_appointments,
-            "my_approved_appointments": my_approved_appointments,
-            "my_pending_appointments": my_pending_appointments,
-            "my_rejected_appointments": my_rejected_appointments,
-            "my_finished_appointments": my_finished_appointments,
-            "my_prescriptions": my_prescriptions,
-            "my_bills": my_bills,
-            "my_total_bill_amount": my_total_bill_amount,
+
+            "appointment_summary": {
+                "my_appointments": my_appointments,
+                "my_approved_appointments": my_approved_appointments,
+                "my_pending_appointments": my_pending_appointments,
+                "my_rejected_appointments": my_rejected_appointments,
+                "my_finished_appointments": my_finished_appointments,
+            },
+
+            "medical_summary": {
+                "my_prescriptions": my_prescriptions,
+                "my_bills": my_bills,
+                "my_total_bill_amount": my_total_bill_amount,
+                "my_waiting_prescription": my_waiting_prescription,
+                "my_waiting_bill": my_waiting_bill,
+            },
+
+            "latest_activity": {
+                "my_latest_appointment": str(my_latest_appointment) if my_latest_appointment else "No appointment yet",
+                "my_latest_prescription": str(my_latest_prescription) if my_latest_prescription else "No prescription yet",
+                "my_latest_bill": str(my_latest_bill) if my_latest_bill else "No bill yet",
+            }
         }
 
         return Response(data)
