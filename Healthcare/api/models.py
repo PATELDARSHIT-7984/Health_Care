@@ -29,11 +29,12 @@ class Appointment(models.Model):
         ('Pending', 'Pending'),
         ('Approved', 'Approved'),
         ('Rejected', 'Rejected'),
+        ('Finished', 'Finished'),
     ]
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     doctor = models.ForeignKey(Doctor, on_delete=models.CASCADE)
     date = models.DateTimeField()
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Scheduled')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
 
     def __str__(self):
         return f"{self.user.username} - Dr. {self.doctor.name} ({self.date})"
@@ -54,14 +55,26 @@ class Prescription(models.Model):
         return f"{self.appointment.user.username} - dr. {self.appointment.doctor.name} - {self.medication.name}"
     
 class Bill(models.Model):
-    prescription = models.OneToOneField(Prescription, on_delete=models.CASCADE)
+    prescription = models.OneToOneField(Prescription, on_delete=models.SET_NULL, null=True,blank=True)
+
     quantity = models.PositiveIntegerField(default=1)
     total_price = models.FloatField()
     billing_date = models.DateTimeField(auto_now_add=True)
 
+    patient_name = models.CharField(max_length=100, blank=True)
+    doctor_name = models.CharField(max_length=100, blank=True)
+    medicine_name = models.CharField(max_length=100, blank=True)
+    medicine_price = models.FloatField(blank=True, null=True)    
+
     def save(self, *args, **kwargs):
-        self.total_price = self.prescription.medication.price * self.quantity
+        if self.prescription:
+            self.patient_name = self.prescription.appointment.user.username
+            self.doctor_name = self.prescription.appointment.doctor.name
+            self.medicine_name = self.prescription.medication.name
+            self.medicine_price = self.prescription.medication.price
+            self.total_price = self.medicine_price * self.quantity
+        
         super().save(*args, **kwargs)
     
     def __str__(self):
-        return f"Bill for {self.prescription.medication.name} - Total: {self.total_price}"
+        return f"Bill for {self.medicine_name} - Total: {self.total_price}"

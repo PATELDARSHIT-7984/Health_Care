@@ -5,9 +5,11 @@ from .models import Appointment, Bill, Doctor, Health, Medicine, Prescription, U
 
 class Healthserializer(serializers.ModelSerializer):
 
+    username = serializers.CharField(source='user.username', read_only=True)
+
     class Meta:
         model = Health
-        fields = '__all__'
+        fields = ['id', 'user', 'username', 'name', 'no', 'Email']
         read_only_fields = ['user']
 
     def validate(self, attrs):
@@ -44,20 +46,81 @@ class RegisterSerializer(serializers.ModelSerializer):
         return user
 
 class DoctorSerializer(serializers.ModelSerializer):
+    can_leave = serializers.SerializerMethodField()
+    doctor_status = serializers.SerializerMethodField()
+
     class Meta:
         model = Doctor
-        fields = '__all__'
+        fields = ['id', 'name', 'specialization', 'experience', 'hospital', 'can_leave', 'doctor_status']
+
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get('request')
+
+        if request and not request.user.is_staff:
+            fields.pop('can_leave', None)
+            fields.pop('doctor_status', None)
+
+        return fields
+
+    def get_can_leave(self, obj):
+        active_approved = Appointment.objects.filter(
+            doctor=obj,
+            status__in=['Approved', 'Pending']
+        ).exists()
+
+        finished_without_prescription = Appointment.objects.filter(
+            doctor=obj,
+            status='Finished',
+            prescription__isnull=True
+        ).exists()
+
+        finished_with_prescription_but_no_bill = Prescription.objects.filter(
+            appointment__doctor=obj,
+            appointment__status='Finished',
+            bill__isnull=True
+        ).exists()
+
+        return not (
+            active_approved or
+            finished_without_prescription or
+            finished_with_prescription_but_no_bill
+        )
+
+    def get_doctor_status(self, obj):
+        active_approved = Appointment.objects.filter(
+            doctor=obj,
+            status__in=['Approved', 'Pending']
+        ).exists()
+
+        finished_without_prescription = Appointment.objects.filter(
+            doctor=obj,
+            status='Finished',
+            prescription__isnull=True
+        ).exists()
+
+        finished_with_prescription_but_no_bill = Prescription.objects.filter(
+            appointment__doctor=obj,
+            appointment__status='Finished',
+            bill__isnull=True
+        ).exists()
+
+        if active_approved:
+            return "Doctor still has approved appointments."
+
+        if finished_without_prescription:
+            return "Doctor has finished appointments but prescription is still pending."
+
+        if finished_with_prescription_but_no_bill:
+            return "Doctor has finished appointments and prescription is created, but bill is still pending."
+
+        return "Doctor is free to leave."
 
 class AppointmentSerializer(serializers.ModelSerializer):
         
     user_name = serializers.CharField(source='user.username', read_only=True)
     doctor_name = serializers.CharField(source='doctor.name', read_only=True)
-
-
-    appointment_details = serializers.CharField(
-        source='appointment.__str__',
-        read_only=True
-    )
+    appointment_details = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Appointment
@@ -68,39 +131,84 @@ class AppointmentSerializer(serializers.ModelSerializer):
         fields = super().get_fields()
         request = self.context.get('request')
 
-        def validate_date(self, attrs):
-            from django.utils import timezone
-
-            if attrs < timezone.now():
-                raise serializers.ValidationError("Appointment date cannot be in the past!")
-            return attrs
-
         if request:
-            if request.user.is_staff:
-                fields['doctor'].read_only = True
-                fields['date'].read_only = True
-            else:
+            if not request.user.is_staff:
                 fields['status'].read_only = True
 
         return fields
-            
+
+    def validate(self, attrs):
+        from django.utils import timezone
+
+        request = self.context.get('request')
+        doctor = attrs.get('doctor', getattr(self.instance, 'doctor', None))
+        date = attrs.get('date', getattr(self.instance, 'date', None))
+        new_status = attrs.get('status', getattr(self.instance, 'status', None))
+
+        # 1. Prevent past appointment booking
+        if date and date < timezone.now():
+            raise serializers.ValidationError({
+                "date": "Appointment date cannot be in the past!"
+            })
+
+        # 2. Prevent duplicate same-slot booking for same doctor
+        if doctor and date:
+            existing_appointment = Appointment.objects.filter(doctor=doctor, date=date)
+
+            if self.instance:
+                existing_appointment = existing_appointment.exclude(id=self.instance.id)
+
+            if existing_appointment.exists():
+                raise serializers.ValidationError({
+                    "date": "This doctor already has an appointment at this date and time!"
+                })
+
+        # 3. Only admin can change status
+        if self.instance and request and not request.user.is_staff:
+            if 'status' in attrs:
+                raise serializers.ValidationError({
+                    "status": "Only admin can update appointment status!"
+                })
+
+        # 4. Finished allowed only if prescription and bill exist
+        if self.instance and request and request.user.is_staff:
+            if new_status == 'Finished':
+                prescription = Prescription.objects.filter(appointment=self.instance).first()
+
+                if not prescription:
+                    raise serializers.ValidationError({
+                        "status": "Cannot mark appointment as finished until prescription is created!"
+                    })
+
+                if not Bill.objects.filter(prescription=prescription).exists():
+                    raise serializers.ValidationError({
+                        "status": "Cannot mark appointment as finished until bill is generated!"
+                    })
+
+        return attrs
+
+    def get_appointment_details(self, obj):
+        return f"Appointment for {obj.user.username} with Dr. {obj.doctor.name} on {obj.date.strftime('%Y-%m-%d %H:%M')} - Status: {obj.status}"
+
 class PrescriptionSerializer(serializers.ModelSerializer):
-    
-    class Meta:
-        model = Prescription
-        fields = '__all__'
-    
     user_name = serializers.CharField(source='appointment.user.username', read_only=True)
     doctor_name = serializers.CharField(source='appointment.doctor.name', read_only=True)
     medicine_name = serializers.CharField(source='medication.name', read_only=True)
     medicine_price = serializers.FloatField(source='medication.price', read_only=True)
     appointment_details = serializers.CharField(source='appointment.__str__', read_only=True)
 
+    class Meta:
+        model = Prescription
+        fields = '__all__'
+
     def validate(self, attrs):
-        appointment = attrs.get('appointment')
+        appointment = attrs.get('appointment', getattr(self.instance, 'appointment', None))
+
         if appointment and appointment.status != 'Approved':
-            raise serializers.ValidationError("Cannot create prescription for unapproved appointment!")
-        
+            raise serializers.ValidationError({
+                "appointment": "Cannot create prescription for unapproved appointment!"
+            })
+
         return attrs
 
     def get_fields(self):
@@ -108,7 +216,17 @@ class PrescriptionSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
 
         if request and request.user.is_staff:
-            fields['appointment'].queryset = Appointment.objects.filter(status='Approved')
+
+            if isinstance(self.instance, Prescription):
+                fields['appointment'].queryset = Appointment.objects.filter(
+                    Q(prescription__isnull=True) | Q(id=self.instance.appointment.id),
+                    status='Approved'
+                )
+            else:
+                fields['appointment'].queryset = Appointment.objects.filter(
+                    prescription__isnull=True,
+                    status='Approved'
+                )
 
         return fields
 
@@ -124,23 +242,8 @@ class MedicineSerializer(serializers.ModelSerializer):
         return value
 
 class BillSerializer(serializers.ModelSerializer):
-    user_name = serializers.CharField(
-        source='prescription.appointment.user.username',
-        read_only=True
-    )
-    doctor_name = serializers.CharField(
-        source='prescription.appointment.doctor.name',
-        read_only=True
-    )
-    medicine_name = serializers.CharField(
-        source='prescription.medication.name',
-        read_only=True
-    )
-    medicine_price = serializers.FloatField(
-        source='prescription.medication.price',
-        read_only=True
-    )
-
+    
+    user_name = serializers.CharField(source='patient_name', read_only=True)
     class Meta:
         model = Bill
         fields = '__all__'
@@ -155,25 +258,33 @@ class BillSerializer(serializers.ModelSerializer):
                 "prescription": "Prescription is required to create a bill!"
             })
 
-        if self.instance:
-            if Bill.objects.filter(prescription=prescription).exclude(id=self.instance.id).exists():
-                raise serializers.ValidationError({
-                    "prescription": "Bill already exists for this prescription!"
-                })
-        else:
-            if Bill.objects.filter(prescription=prescription).exists():
-                raise serializers.ValidationError({
-                    "prescription": "Bill already exists for this prescription!"
-                })
+        # 1. Only one bill per prescription
+        existing_bill = Bill.objects.filter(prescription=prescription)
 
+        if self.instance:
+            existing_bill = existing_bill.exclude(id=self.instance.id)
+
+        if existing_bill.exists():
+            raise serializers.ValidationError({
+                "prescription": "Bill already exists for this prescription!"
+            })
+
+        # 2. Prescription must belong to Approved or Finished appointment
+        if prescription.appointment.status not in ['Approved', 'Finished']:
+            raise serializers.ValidationError({
+                "prescription": "Bill can only be created for approved or finished appointments!"
+            })
+
+        # 3. Medicine price must be valid
         if prescription.medication.price <= 0:
             raise serializers.ValidationError({
                 "prescription": "Medicine price must be greater than zero!"
             })
 
+        # 4. Quantity must be valid
         if quantity is None or quantity <= 0:
             raise serializers.ValidationError({
-                "qantity": "Quantity must be greater than zero!"
+                "quantity": "Quantity must be greater than zero!"
             })
 
         return attrs
@@ -183,9 +294,7 @@ class BillSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
 
         if request:
-
             if request.user.is_staff:
-
                 if isinstance(self.instance, Bill):
                     fields['prescription'].queryset = Prescription.objects.filter(
                         Q(bill__isnull=True) | Q(id=self.instance.prescription.id)
@@ -194,7 +303,6 @@ class BillSerializer(serializers.ModelSerializer):
                     fields['prescription'].queryset = Prescription.objects.filter(
                         bill__isnull=True
                     )
-
             else:
                 fields['prescription'].read_only = True
                 fields['quantity'].read_only = True
