@@ -1,5 +1,5 @@
 from django.urls import path, include
-from .views import (HealthcenterView, DoctorView, RegisterView, AppointmentView, PrescriptionView, MedicineView, BillView, AdminDashboardView, PatientDashboardView)
+from .views import (ChangePasswordView, CurrentUserView, HealthcenterView, DoctorView, LoginView, RegisterView, AppointmentView, PrescriptionView, MedicineView, BillView, AdminDashboardView, PatientDashboardView)
 from rest_framework.authtoken.views import obtain_auth_token
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
@@ -26,10 +26,13 @@ router.register(r'medicine', MedicineView)
 router.register(r'bill', BillView)
 
 urlpatterns = [
-    path('login/', obtain_auth_token),
+    path('login_T/', obtain_auth_token),
     path('dashboard/admin/',AdminDashboardView.as_view(), name='admin-dashboard'),
     path('dashboard/patient/',PatientDashboardView.as_view(), name='patient-dashboard'),
-
+    path('login',LoginView.as_view(), name='login'),
+    path('current_user/', CurrentUserView.as_view(), name='current-user'),
+    path('change_password/', ChangePasswordView.as_view(), name='change-password'),
+    
     # JWT (if you use later)
     # path('login/', TokenObtainPairView.as_view(), name='login'),
     # path('refresh/', TokenRefreshView.as_view(), name='refresh'),

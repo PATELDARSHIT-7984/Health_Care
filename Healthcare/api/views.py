@@ -1,13 +1,18 @@
 from django.http import HttpResponse
 from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
+from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
 from .models import Appointment, Bill, Doctor, Health, Medicine, Prescription, User
-from .serializers import AppointmentSerializer, BillSerializer, DoctorSerializer, Healthserializer, MedicineSerializer, PrescriptionSerializer, RegisterSerializer
+from .serializers import AppointmentSerializer, BillSerializer, DoctorSerializer, Healthserializer, MedicineSerializer, PrescriptionSerializer, RegisterSerializer, LoginSerializer, CurrentUserSerializer, ChangePasswordSerializer
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from .permission import IsOwnerOrReadOnly, IsAdminOrReadOnly, IsOwnerOrAdmin
 from django.db.models import Q, Sum
 from rest_framework.exceptions import PermissionDenied
+from rest_framework.authtoken.models import Token
+from rest_framework import status
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 
 
 class HealthcenterView(ModelViewSet):
@@ -78,6 +83,7 @@ class DoctorView(ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 class RegisterView(ModelViewSet):
+
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
 
@@ -89,6 +95,59 @@ class RegisterView(ModelViewSet):
         if self.action == 'create':
             return [AllowAny()]
         return [IsAuthenticated(), IsAdminOrReadOnly()]
+    
+class LoginView(GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = LoginSerializer
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid():
+            user = serializer.validated_data['user']
+            token, created = Token.objects.get_or_create(user=user)
+
+            return Response({
+                "message": "Login successful!",
+                "token": token.key,
+                "username": user.username,
+                "is_staff": user.is_staff
+            }, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class CurrentUserView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        serializer = CurrentUserSerializer(request.user)
+        return Response(serializer.data)
+
+class ChangePasswordView(GenericAPIView):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ChangePasswordSerializer
+
+    def get(self, request):
+        serializer = self.get_serializer()
+        return Response(serializer.data)
+    
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+
+        if serializer.is_valid():
+            user = request.user
+            old_password = serializer.validated_data['old_password']
+            new_password = serializer.validated_data['new_password']
+
+            if not user.check_password(old_password):
+                return Response({"old_password": ["Wrong password."]}, status=status.HTTP_400_BAD_REQUEST)
+
+            user.set_password(new_password)
+            user.save()
+
+            return Response({"message": "Password changed successfully!"}, status=status.HTTP_200_OK)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST) 
 
 class AppointmentView(ModelViewSet):
     queryset = Appointment.objects.all()

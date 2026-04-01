@@ -2,6 +2,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from django.db.models import Q
 from .models import Appointment, Bill, Doctor, Health, Medicine, Prescription, User, Patient
+from django.contrib.auth import authenticate
 
 class Healthserializer(serializers.ModelSerializer):
 
@@ -25,6 +26,7 @@ class Healthserializer(serializers.ModelSerializer):
         return attrs
 
 class RegisterSerializer(serializers.ModelSerializer):
+
     password = serializers.CharField(write_only=True)
     class Meta:
         model = Patient
@@ -44,6 +46,55 @@ class RegisterSerializer(serializers.ModelSerializer):
             password=validated_data['password']
         )
         return user
+
+class LoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True)
+
+    def validate(self, attrs):
+        
+        usename = attrs.get('username')
+        password = attrs.get('password')
+        
+        user = authenticate(username=usename, password=password)
+
+        if not user:
+            raise serializers.ValidationError(
+                {"detail": "Invalid username or password!"}
+            )
+        attrs['user'] = user
+        return attrs
+
+class CurrentUserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'is_staff']
+
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField(
+        write_only=True,
+        style={'input_type': 'password'}
+    )
+    new_password = serializers.CharField(
+        write_only=True,
+        style={'input_type': 'password'}
+    )
+    confirm_password = serializers.CharField(
+        write_only=True,
+        style={'input_type': 'password'}
+    )
+
+    def validate(self, attrs):
+        old_password = attrs.get('old_password')
+        new_password = attrs.get('new_password')
+        confirm_password = attrs.get('confirm_password')
+
+        if new_password != confirm_password:
+            raise serializers.ValidationError({
+                "confirm_password": "New password and confirm password do not match!"
+            })
+
+        return attrs
 
 class DoctorSerializer(serializers.ModelSerializer):
     can_leave = serializers.SerializerMethodField()
