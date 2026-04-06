@@ -27,20 +27,31 @@ class Healthserializer(serializers.ModelSerializer):
 
 class RegisterSerializer(serializers.ModelSerializer):
 
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True,style={'input_type': 'password'})
+    confirm_password = serializers.CharField(write_only=True,style={'input_type': 'password'})
     class Meta:
-        model = Patient
+        model = User
         fields = ['id', 'username', 'password']
         read_only_fields = ['id']
 
     def validate(self, attrs):
-        if User.objects.filter(username = attrs['username']).exists():
+        username = attrs.get('username')
+        password = attrs.get('password')
+        confirm_password = attrs.get('confirm_password')
+
+        if User.objects.filter(username = username).exists():
             raise serializers.ValidationError(
                 {"Username": "This username is already taken!"}
+            )
+        
+        if password != confirm_password:
+            raise serializers.ValidationError(
+                {"confirm_password": "Password and confirm password do not match!"}
             )
         return attrs
 
     def create(self, validated_data):
+        validated_data.pop('confirm_password', None)
         user = User.objects.create_user(
             username=validated_data['username'],
             password=validated_data['password']
@@ -49,14 +60,14 @@ class RegisterSerializer(serializers.ModelSerializer):
 
 class LoginSerializer(serializers.Serializer):
     username = serializers.CharField()
-    password = serializers.CharField(write_only=True)
+    password = serializers.CharField(write_only=True,style ={'input_type': 'password'})
 
     def validate(self, attrs):
         
-        usename = attrs.get('username')
+        username = attrs.get('username')
         password = attrs.get('password')
         
-        user = authenticate(username=usename, password=password)
+        user = authenticate(username=username, password=password)
 
         if not user:
             raise serializers.ValidationError(
@@ -66,9 +77,21 @@ class LoginSerializer(serializers.Serializer):
         return attrs
 
 class CurrentUserSerializer(serializers.ModelSerializer):
+
+    role = serializers.SerializerMethodField()
+    has_health_profile = serializers.SerializerMethodField()
+
     class Meta:
         model = User
         fields = ['id', 'username', 'is_staff']
+
+    def get_role(self, obj):
+        if obj.is_staff:
+            return "Admin"
+        return "Patient"
+    
+    def get_has_health_profile(self, obj):
+        return Health.objects.filter(user=obj).exists()
 
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(
@@ -85,15 +108,27 @@ class ChangePasswordSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs):
+        reqest = self.context.get('request')
+        user = reqest.user
+
         old_password = attrs.get('old_password')
         new_password = attrs.get('new_password')
         confirm_password = attrs.get('confirm_password')
+
+        if not user.check_password(old_password):
+            raise serializers.ValidationError({
+                "old_password": "Incorrect old password!"
+            })
 
         if new_password != confirm_password:
             raise serializers.ValidationError({
                 "confirm_password": "New password and confirm password do not match!"
             })
 
+        if old_password == new_password:
+            raise serializers.ValidationError({
+                "new_password": "New password must be different from old password!"
+            })
         return attrs
 
 class DoctorSerializer(serializers.ModelSerializer):
@@ -106,7 +141,7 @@ class DoctorSerializer(serializers.ModelSerializer):
 
     def get_fields(self):
         fields = super().get_fields()
-        request = self.context.get('request')
+        request = self.context.get('request')   
 
         if request and not request.user.is_staff:
             fields.pop('can_leave', None)

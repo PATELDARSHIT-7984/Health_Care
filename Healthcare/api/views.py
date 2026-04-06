@@ -6,8 +6,8 @@ from rest_framework.response import Response
 from .models import Appointment, Bill, Doctor, Health, Medicine, Prescription, User
 from .serializers import AppointmentSerializer, BillSerializer, DoctorSerializer, Healthserializer, MedicineSerializer, PrescriptionSerializer, RegisterSerializer, LoginSerializer, CurrentUserSerializer, ChangePasswordSerializer
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from .permission import IsOwnerOrReadOnly, IsAdminOrReadOnly, IsOwnerOrAdmin
-from django.db.models import Q, Sum
+from .permission import IsOwnerOrReadOnly, IsAdminOrReadOnly
+from django.db.models import Q, Sum, Count, Avg, Max
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.authtoken.models import Token
 from rest_framework import status
@@ -100,6 +100,10 @@ class LoginView(GenericAPIView):
     permission_classes = [AllowAny]
     serializer_class = LoginSerializer
 
+    def get(self, request):
+        serializer = self.get_serializer()
+        return Response(serializer.data)
+
     def post(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
 
@@ -115,6 +119,14 @@ class LoginView(GenericAPIView):
             }, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class LogoutView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        Token.objects.filter(user=user).delete()
+        return Response({"message": "Logout successful!"}, status=status.HTTP_200_OK)
 
 class CurrentUserView(APIView):
     permission_classes = [IsAuthenticated]
@@ -135,17 +147,18 @@ class ChangePasswordView(GenericAPIView):
         serializer = self.get_serializer(data=request.data)
 
         if serializer.is_valid():
-            user = request.user
-            old_password = serializer.validated_data['old_password']
-            new_password = serializer.validated_data['new_password']
+            serializer = self.get_serializer(data=request.data, context={'request': request})
 
-            if not user.check_password(old_password):
-                return Response({"old_password": ["Wrong password."]}, status=status.HTTP_400_BAD_REQUEST)
+            user = request.user
+            new_password = serializer.validated_data['new_password']
 
             user.set_password(new_password)
             user.save()
 
-            return Response({"message": "Password changed successfully!"}, status=status.HTTP_200_OK)
+            Token.objects.filter(user=user).delete()
+            new_token = Token.objects.create(user=user)
+
+            return Response({"message": "Password changed successfully!", "new_token": new_token.key}, status=status.HTTP_200_OK)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST) 
 
@@ -449,6 +462,155 @@ class PatientDashboardView(APIView):
         }
 
         return Response(data)
+
+class DoctorAppoitmentReportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.is_staff:
+            raise PermissionDenied("Only admin can access doctor appointment report.")
+
+        doctor = Doctor.objects.annotate(
+            total_appointments=Count('appointment'),
+            pending_appointments=Count('appointment', filter=Q(appointment__status='Pending')),
+            approved_appointments=Count('appointment', filter=Q(appointment__status='Approved')),
+            rejected_appointments=Count('appointment', filter=Q(appointment__status='Rejected')),
+            finished_appointments=Count('appointment', filter=Q(appointment__status='Finished')),
+        ).order_by('name')
+
+        data = []
+
+        for doc in doctor:
+            data.append({
+                "doctor_id": doc.id,
+                "doctor_name": doc.name,
+                "specialization": doc.specialization,
+                "hospital": doc.hospital,
+                "total_appointments": doc.total_appointments,
+                "pending_appointments": doc.pending_appointments,
+                "approved_appointments": doc.approved_appointments,
+                "rejected_appointments": doc.rejected_appointments,
+                "finished_appointments": doc.finished_appointments,
+            })
+
+        return Response({
+            "report name": "Doctor Appointment Report",
+            "total_doctors": doctor.count(),
+            "doctors_report": data
+        })
+    
+class RevenueReportView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.is_staff:
+            raise PermissionDenied("Only admin can access revenue report.")
+
+        total_bills = Bill.objects.count()
+        revenue = Bill.objects.aggregate(
+            total_revenue = Sum('total_price'),
+            average_bill = Avg('total_price'),
+            max_bill = Max('total_price'),
+        )
+
+        recent_bills = Bill.objects.order_by('-billing_date')[:5]
+
+        bills_data = []
+
+        for bill in recent_bills:
+            bills_data.append({
+                "bill_id": bill.id,
+                "patient_name": bill.patient_name,
+                "doctor_name": bill.doctor_name,
+                "medicine_name": bill.medicine_name,
+                "quantity": bill.quantity,
+                "total_price": bill.total_price,
+                "billing_date": bill.billing_date
+            })
+
+        return Response({
+            "report_name": "Revenue Report",
+            "summary": {
+                "total_bills": total_bills,
+                "total_revenue": revenue['total_revenue'] or 0,
+                "average_bill_amount": revenue['average_bill'] or 0,
+                "highest_bill_amount": revenue['max_bill'] or 0,
+            },
+            "recent_bills": bills_data
+        })
+
+class MedicineUsageReportView(APIView):
+
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+
+        if not request.user.is_staff:
+            raise PermissionDenied("Only admin can access medicine usage report.")
+        
+        medicines = Medicine.objects.annotate(
+            total_prescriptions=Count('prescription')
+            ).order_by('-total_prescriptions', 'name')
+        
+        data = []
+
+        for medicine in medicines:
+            data.append({
+                "medicine_id": medicine.id,
+                "medicine_name": medicine.name,
+                "price": medicine.price,
+                "times_prescribed": medicine.total_prescriptions,
+            })
+        
+        return Response({
+            "report_name": "Medicine Usage Report",
+            "total_medicines": medicines.count(),
+            "medicine_report": data
+        })
+
+class PatientActivityReportView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if not request.user.is_staff:
+            raise PermissionDenied("Only admin can access patient activity reports.")
+
+        patients = User.objects.filter(is_staff=False).annotate(
+            total_appointments=Count('appointment'),
+            approved_appointments=Count('appointment', filter=Q(appointment__status='Approved')),
+            pending_appointments=Count('appointment', filter=Q(appointment__status='Pending')),
+            rejected_appointments=Count('appointment', filter=Q(appointment__status='Rejected')),
+            finished_appointments=Count('appointment', filter=Q(appointment__status='Finished')),
+            total_prescriptions=Count('appointment__prescription'),
+            total_bills=Count('appointment__prescription__bill')
+        ).order_by('-total_appointments', 'username')
+
+        data = []
+
+        for patient in patients:
+            total_bill_amount = Bill.objects.filter(
+                prescription__appointment__user=patient
+            ).aggregate(total=Sum('total_price'))['total'] or 0
+
+            data.append({
+                "patient_id": patient.id,
+                "username": patient.username,
+                "total_appointments": patient.total_appointments,
+                "approved_appointments": patient.approved_appointments,
+                "pending_appointments": patient.pending_appointments,
+                "rejected_appointments": patient.rejected_appointments,
+                "finished_appointments": patient.finished_appointments,
+                "total_prescriptions": patient.total_prescriptions,
+                "total_bills": patient.total_bills,
+                "total_bill_amount": total_bill_amount,
+            })
+
+        return Response({
+            "report_name": "Patient Activity Report",
+            "total_patients": patients.count(),
+            "patient_report": data
+        })
 
 def home(request):
     return HttpResponse("Welcome to HealthcareCenter")

@@ -10,7 +10,7 @@ class Health(models.Model):
 
     def __str__(self):
         return self.name
-    
+
 class Patient(models.Model):
     username = models.CharField(max_length=100)
     password = models.CharField(max_length=100)
@@ -53,7 +53,7 @@ class Prescription(models.Model):
 
     def __str__(self):
         return f"{self.appointment.user.username} - dr. {self.appointment.doctor.name} - {self.medication.name}"
-    
+
 class Bill(models.Model):
     prescription = models.OneToOneField(Prescription, on_delete=models.SET_NULL, null=True,blank=True)
 
