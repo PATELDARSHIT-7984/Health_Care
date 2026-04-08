@@ -31,7 +31,7 @@ class HealthcenterView(ModelViewSet):
         serializer.save(user=self.request.user)
 
 class DoctorView(ModelViewSet):
-    queryset = Doctor.objects.all()
+    queryset = Doctor.objects.all().order_by('id')
     serializer_class = DoctorSerializer
     permission_classes = [IsAuthenticated, IsAdminOrReadOnly]
 
@@ -144,13 +144,16 @@ class ChangePasswordView(GenericAPIView):
         return Response(serializer.data)
     
     def post(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+        serializer = self.get_serializer(data=request.data, context={'request': request})
 
-        if serializer.is_valid():
-            serializer = self.get_serializer(data=request.data, context={'request': request})
+        if serializer.is_valid(raise_exception=True):
 
             user = request.user
+            old_password = serializer.validated_data['old_password']
             new_password = serializer.validated_data['new_password']
+
+            if not user.check_password(old_password):
+                return Response({"error": "Old password is incorrect."}, status=status.HTTP_400_BAD_REQUEST)
 
             user.set_password(new_password)
             user.save()
@@ -163,7 +166,7 @@ class ChangePasswordView(GenericAPIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST) 
 
 class AppointmentView(ModelViewSet):
-    queryset = Appointment.objects.all()
+    queryset = Appointment.objects.all().order_by('id')
     serializer_class = AppointmentSerializer
     permission_classes = [IsAuthenticated]
 
@@ -194,12 +197,15 @@ class AppointmentView(ModelViewSet):
             if appointment.status != 'Pending':
                 raise PermissionDenied("You can only update pending appointments.")
 
-        # Admin cannot edit finished appointment if prescription exists
+            if 'status' in request.data:
+                raise PermissionDenied("Patients cannot change appointment status.")
+
         if request.user.is_staff:
             if appointment.status == 'Finished' and Prescription.objects.filter(appointment=appointment).exists():
                 raise PermissionDenied(
                     "Finished appointment with prescription should not be edited because it is part of patient history."
                 )
+
 
         return super().update(request, *args, **kwargs)
 
@@ -215,7 +221,7 @@ class AppointmentView(ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 class PrescriptionView(ModelViewSet):
-    queryset = Prescription.objects.all()
+    queryset = Prescription.objects.all().order_by('id')
     serializer_class = PrescriptionSerializer
     permission_classes = [IsAuthenticated, IsAdminOrReadOnly]
 
@@ -261,7 +267,7 @@ class PrescriptionView(ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 class MedicineView(ModelViewSet):
-    queryset = Medicine.objects.all()
+    queryset = Medicine.objects.all().order_by('id')
     serializer_class = MedicineSerializer
     permission_classes = [IsAuthenticated, IsAdminOrReadOnly]
 
@@ -281,7 +287,7 @@ class MedicineView(ModelViewSet):
         return super().destroy(request, *args, **kwargs)
 
 class BillView(ModelViewSet):
-    queryset = Bill.objects.all()
+    queryset = Bill.objects.all().order_by('id')
     serializer_class = BillSerializer
     permission_classes = [IsAuthenticated, IsAdminOrReadOnly]
 
@@ -498,7 +504,7 @@ class DoctorAppoitmentReportView(APIView):
             "total_doctors": doctor.count(),
             "doctors_report": data
         })
-    
+
 class RevenueReportView(APIView):
 
     permission_classes = [IsAuthenticated]

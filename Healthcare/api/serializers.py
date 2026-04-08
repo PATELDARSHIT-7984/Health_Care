@@ -31,7 +31,7 @@ class RegisterSerializer(serializers.ModelSerializer):
     confirm_password = serializers.CharField(write_only=True,style={'input_type': 'password'})
     class Meta:
         model = User
-        fields = ['id', 'username', 'password']
+        fields = ['id', 'username', 'password', 'confirm_password']
         read_only_fields = ['id']
 
     def validate(self, attrs):
@@ -83,7 +83,8 @@ class CurrentUserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'is_staff']
+        fields = ['id', 'username', 'is_staff', 'role', 'has_health_profile']
+
 
     def get_role(self, obj):
         if obj.is_staff:
@@ -108,8 +109,8 @@ class ChangePasswordSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs):
-        reqest = self.context.get('request')
-        user = reqest.user
+        request = self.context.get('request')
+        user = request.user
 
         old_password = attrs.get('old_password')
         new_password = attrs.get('new_password')
