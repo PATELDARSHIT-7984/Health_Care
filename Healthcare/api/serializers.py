@@ -1,8 +1,15 @@
 from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from django.db.models import Q
+
 from .models import Appointment, Bill, Doctor, Health, Medicine, Prescription, User, Patient
 from django.contrib.auth import authenticate
+from .pydantic_models.appointment_schema import AppointmentSchema
+from .pydantic_models.prescription_schema import PrescriptionSchema
+from .pydantic_models.bill_schema import BillSchema
+from .pydantic_models.auth_schema import UserRegister
+from .pydantic_models.auth_schema import UserLogin
+from .pydantic_models.healthprofile_schema import HealthProfileSchema
 
 class Healthserializer(serializers.ModelSerializer):
 
@@ -10,13 +17,21 @@ class Healthserializer(serializers.ModelSerializer):
 
     class Meta:
         model = Health
-        fields = ['id', 'user', 'username', 'name', 'no', 'Email']
+        fields = ['id', 'user', 'username', 'name', 'phone', 'Email']
         read_only_fields = ['user']
 
     def validate(self, attrs):
         request = self.context.get('request')
         user = request.user
+        
         email = attrs.get('Email')
+        name = attrs.get('name',getattr(self.instance, 'name', None))
+        phone = attrs.get('phone',getattr(self.instance, 'phone', None))
+
+        try:
+            HealthProfileSchema(name=name, phone=phone, Email=email)
+        except Exception as e:
+            raise serializers.ValidationError({"detail":str(e)})
 
         if request.method == 'POST':
             if Health.objects.filter(user=user,Email=email).exists():
@@ -39,14 +54,14 @@ class RegisterSerializer(serializers.ModelSerializer):
         password = attrs.get('password')
         confirm_password = attrs.get('confirm_password')
 
+        try:
+            UserRegister(username=username, password=password, confirm_password=confirm_password)
+        except Exception as e:
+            raise serializers.ValidationError({"detail": str(e)})
+
         if User.objects.filter(username = username).exists():
             raise serializers.ValidationError(
                 {"Username": "This username is already taken!"}
-            )
-        
-        if password != confirm_password:
-            raise serializers.ValidationError(
-                {"confirm_password": "Password and confirm password do not match!"}
             )
         return attrs
 
@@ -68,6 +83,11 @@ class LoginSerializer(serializers.Serializer):
         password = attrs.get('password')
         
         user = authenticate(username=username, password=password)
+
+        try:
+            UserLogin(username=username, password=password)
+        except Exception as e:
+            raise serializers.ValidationError({"detail": str(e)})
 
         if not user:
             raise serializers.ValidationError(
@@ -225,18 +245,21 @@ class AppointmentSerializer(serializers.ModelSerializer):
         return fields
 
     def validate(self, attrs):
-        from django.utils import timezone
 
         request = self.context.get('request')
         doctor = attrs.get('doctor', getattr(self.instance, 'doctor', None))
         date = attrs.get('date', getattr(self.instance, 'date', None))
         new_status = attrs.get('status', getattr(self.instance, 'status', None))
 
-        # 1. Prevent past appointment booking
-        if date and date < timezone.now():
+        try:
+            user = self.context['request'].user
+            AppointmentSchema(user=user.id, doctor=doctor.id, date=date)
+
+        except ValueError as e:
             raise serializers.ValidationError({
-                "date": "Appointment date cannot be in the past!"
+                "date": str(e)
             })
+
 
         # 2. Prevent duplicate same-slot booking for same doctor
         if doctor and date:
@@ -284,12 +307,23 @@ class PrescriptionSerializer(serializers.ModelSerializer):
     medicine_price = serializers.FloatField(source='medication.price', read_only=True)
     appointment_details = serializers.CharField(source='appointment.__str__', read_only=True)
 
+
     class Meta:
         model = Prescription
         fields = '__all__'
 
     def validate(self, attrs):
+        
         appointment = attrs.get('appointment', getattr(self.instance, 'appointment', None))
+        medicine = attrs.get('medication', getattr(self.instance, 'medication', None))
+        dosage = attrs.get('dosage', getattr(self.instance, 'dosage', None))
+
+
+        try:
+            PrescriptionSchema(appointment=appointment.id if appointment else None, medication=medicine.id if medicine else None, dosage=dosage, instance_id=self.instance.id if self.instance else None)
+
+        except Exception as e:
+            raise serializers.ValidationError(e.errors())
 
         if appointment and appointment.status != 'Approved':
             raise serializers.ValidationError({
@@ -345,16 +379,7 @@ class BillSerializer(serializers.ModelSerializer):
                 "prescription": "Prescription is required to create a bill!"
             })
 
-        # 1. Only one bill per prescription
-        existing_bill = Bill.objects.filter(prescription=prescription)
-
-        if self.instance:
-            existing_bill = existing_bill.exclude(id=self.instance.id)
-
-        if existing_bill.exists():
-            raise serializers.ValidationError({
-                "prescription": "Bill already exists for this prescription!"
-            })
+        BillSchema(prescription=prescription.id if prescription else None, quantity=quantity, instance_id=self.instance.id if self.instance else None)
 
         # 2. Prescription must belong to Approved or Finished appointment
         if prescription.appointment.status not in ['Approved', 'Finished']:
@@ -366,12 +391,6 @@ class BillSerializer(serializers.ModelSerializer):
         if prescription.medication.price <= 0:
             raise serializers.ValidationError({
                 "prescription": "Medicine price must be greater than zero!"
-            })
-
-        # 4. Quantity must be valid
-        if quantity is None or quantity <= 0:
-            raise serializers.ValidationError({
-                "quantity": "Quantity must be greater than zero!"
             })
 
         return attrs

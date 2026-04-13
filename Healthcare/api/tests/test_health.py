@@ -11,7 +11,7 @@ class HealthTests(BaseAPITestCase):
 
         data = {
             'name': 'John Doe',
-            'no': '12',
+            'phone': '9662456841',
             'Email': 'john.doe@example.com'
         }
 
@@ -27,7 +27,7 @@ class HealthTests(BaseAPITestCase):
         Health.objects.create(
             user=self.patient_user,
             name='John Doe',
-            no='12',
+            phone='9662456841',
             Email='john.doe@example.com'
         )
 
@@ -47,7 +47,7 @@ class HealthTests(BaseAPITestCase):
         Health.objects.create(
             user=self.admin_user,
             name='Admin User',
-            no='34',
+            phone='9662456841',
             Email='admin.user@example.com'
         )
 
@@ -66,13 +66,13 @@ class HealthTests(BaseAPITestCase):
         Health.objects.create(
             user=self.patient_user,
             name='John Doe',
-            no='12',
+            phone ='9662456841',
             Email='john.doe@example.com'
         )
 
         data = {
             'name': 'John Wick',
-            'no': '11',
+            'phone': '9662456841',
             'Email': 'john.doe@example.com'
         }
 
