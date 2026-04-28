@@ -3,8 +3,8 @@ from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 from rest_framework.generics import GenericAPIView
 from rest_framework.response import Response
-from .models import Appointment, Bill, Doctor, Health, Medicine, Prescription, User
-from .serializers import AppointmentSerializer, BillSerializer, DoctorSerializer, Healthserializer, MedicineSerializer, PrescriptionSerializer, RegisterSerializer, LoginSerializer, CurrentUserSerializer, ChangePasswordSerializer
+from .models import Appointment, Bill, Doctor, Health, Medicine, Prescription, User, OTP
+from .serializers import AppointmentSerializer, BillSerializer, DoctorSerializer, Healthserializer, MedicineSerializer, PrescriptionSerializer, RegisterSerializer, LoginSerializer, CurrentUserSerializer, ChangePasswordSerializer, ForgotPasswordSerializer, ResetPasswordSerializer
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from .permission import IsOwnerOrReadOnly, IsAdminOrReadOnly
 from django.db.models import Q, Sum, Count, Avg, Max
@@ -13,6 +13,8 @@ from rest_framework.authtoken.models import Token
 from rest_framework import status
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+import random
+from django.core.mail import send_mail
 
 
 class HealthcenterView(ModelViewSet):
@@ -617,6 +619,54 @@ class PatientActivityReportView(APIView):
             "total_patients": patients.count(),
             "patient_report": data
         })
+
+class ForgotPasswordView(GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = ForgotPasswordSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = serializer.validated_data['user']
+
+        # Generate OTP
+        otp = str(random.randint(100000, 999999))
+
+        # Save OTP
+        OTP.objects.create(user=user, otp=otp)
+
+        send_mail(
+            subject="Your OTP Code",
+            message=f"Your OTP is {otp}",
+            from_email="your_email@gmail.com",
+            recipient_list=[user.email],
+        )
+
+        return Response({"message": "OTP sent to your email"}, status=200)
+
+class ResetPasswordView(GenericAPIView):
+    permission_classes = [AllowAny]
+    serializer_class = ResetPasswordSerializer
+
+    def post(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = serializer.validated_data['user']
+        otp_obj = serializer.validated_data['otp_obj']
+        new_password = serializer.validated_data['new_password']
+
+        # Set new password
+        user.set_password(new_password)
+        user.save()
+
+        # Mark OTP as used
+        otp_obj.is_verified = True
+        otp_obj.save()
+
+        return Response({"message": "Password reset successful"}, status=200)
+
 
 def home(request):
     return HttpResponse("Welcome to HealthcareCenter")

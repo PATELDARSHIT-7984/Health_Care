@@ -1,6 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
-
+import random
 class Health(models.Model):
 
     user = models.OneToOneField(User, on_delete=models.CASCADE)
@@ -55,6 +55,7 @@ class Prescription(models.Model):
         return f"{self.appointment.user.username} - dr. {self.appointment.doctor.name} - {self.medication.name}"
 
 class Bill(models.Model):
+
     prescription = models.OneToOneField(Prescription, on_delete=models.SET_NULL, null=True,blank=True)
 
     quantity = models.PositiveIntegerField(default=1)
@@ -78,3 +79,13 @@ class Bill(models.Model):
     
     def __str__(self):
         return f"Bill for {self.medicine_name} - Total: {self.total_price}"
+    
+class OTP(models.Model):
+    user = models.ForeignKey(User,on_delete=models.CASCADE)
+    otp = models.CharField(max_length=5)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_verified = models.BooleanField(default=False)
+
+    def is_expire(self):
+        from django.utils import timezone
+        return (timezone.now()-self.created_at).seconds > 300

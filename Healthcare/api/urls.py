@@ -5,6 +5,7 @@ from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from rest_framework.routers import DefaultRouter
+from .views import ForgotPasswordView, ResetPasswordView
 
 schema_view = get_schema_view(
     openapi.Info(
@@ -35,6 +36,10 @@ urlpatterns = [
     path('doctor_appointments/', DoctorAppoitmentReportView.as_view(), name='doctor-appointments'),
     path('medicine_usage/', MedicineUsageReportView.as_view(), name='medicine-usage'),
     path('patient_activity/', PatientActivityReportView.as_view(), name='patient-activity'),
+    path('forgot-password/', ForgotPasswordView.as_view()),
+    path('reset-password/', ResetPasswordView.as_view()),
+
+
 
     # JWT (if you use later)
     # path('login/', TokenObtainPairView.as_view(), name='login'),

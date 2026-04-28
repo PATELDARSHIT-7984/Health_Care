@@ -2,7 +2,7 @@ from rest_framework import serializers
 from rest_framework.exceptions import PermissionDenied
 from django.db.models import Q
 
-from .models import Appointment, Bill, Doctor, Health, Medicine, Prescription, User, Patient
+from .models import OTP, Appointment, Bill, Doctor, Health, Medicine, Prescription, User
 from django.contrib.auth import authenticate
 from .pydantic_models.appointment_schema import AppointmentSchema
 from .pydantic_models.prescription_schema import PrescriptionSchema
@@ -46,13 +46,14 @@ class RegisterSerializer(serializers.ModelSerializer):
     confirm_password = serializers.CharField(write_only=True,style={'input_type': 'password'})
     class Meta:
         model = User
-        fields = ['id', 'username', 'password', 'confirm_password']
+        fields = ['id', 'username', 'password', 'confirm_password','email']
         read_only_fields = ['id']
 
     def validate(self, attrs):
         username = attrs.get('username')
         password = attrs.get('password')
         confirm_password = attrs.get('confirm_password')
+        email = attrs.get('email')
 
         try:
             UserRegister(username=username, password=password, confirm_password=confirm_password)
@@ -69,7 +70,8 @@ class RegisterSerializer(serializers.ModelSerializer):
         validated_data.pop('confirm_password', None)
         user = User.objects.create_user(
             username=validated_data['username'],
-            password=validated_data['password']
+            password=validated_data['password'],\
+            email=validated_data['email']
         )
         return user
 
@@ -416,3 +418,45 @@ class BillSerializer(serializers.ModelSerializer):
                 fields['billing_date'].read_only = True
 
         return fields
+    
+class ForgotPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+
+    def validate(self, attrs):
+        email = attrs.get('email')
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("User with this email does not exist")
+
+        attrs['user'] = user
+        return attrs
+   
+class ResetPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp = serializers.CharField(max_length=6)
+    new_password = serializers.CharField(min_length=8)
+
+    def validate(self, attrs):
+        email = attrs.get('email')
+        otp = attrs.get('otp')
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            raise serializers.ValidationError("Invalid email")
+
+        otp_obj = OTP.objects.filter(user=user, otp=otp, is_verified=False).last()
+
+        if not otp_obj:
+            raise serializers.ValidationError("Invalid OTP")
+
+        # ⏳ OTP expiry (5 minutes)
+        from django.utils import timezone
+        if (timezone.now() - otp_obj.created_at).seconds > 300:
+            raise serializers.ValidationError("OTP expired")
+
+        attrs['user'] = user
+        attrs['otp_obj'] = otp_obj
+        return attrs
